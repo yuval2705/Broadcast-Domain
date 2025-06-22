@@ -33,12 +33,25 @@ class Client:
         self.room_name = room_name
         self.init_client_sock(server_ip, server_port)
 
-    def init_client_sock(self, server_ip:str, server_port:int):
+    def init_client_sock(self, server_ip:str, server_port:int) -> None:
+        """
+        Inits the client socket according to the given server address and port.
+
+        @param server_ip: The IPv4 address of the server to connect to.
+        @param server_port: The port number that the server listens on.
+        """
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((server_ip, server_port))
         self.in_session = True
 
     def start_new_session(self, username:str=None, room_name:str=None):
+        """
+        Sends to the server that a new session is starting and send him the relevent information for the session.
+        (like username and room_name).
+
+        @param username: The username for the new session.
+        @param room_name: The room to connect to in this new session.
+        """
         if username is None:
             username = self.username
         if room_name is None:
@@ -47,15 +60,29 @@ class Client:
         new_conn_req = New_Connection_Request(username, room_name)
         self.socket.send(new_conn_req.encode())
     
-    def _close_session(self):
+    def _close_session(self) -> None:
+        """
+        Closes the current session with the server.
+        """
+
         self.in_session = False
         close_req = Close_Request()
         self.socket.send(close_req.encode())
 
-    def _change_room(self, new_room):
+    def _change_room(self, new_room:str):
+        """
+        Creates a new session with the current username but with a new room.
+
+        @param new_room: The room name to create the new session to.
+        """
         self.start_new_session(room_name=new_room)
 
     def handle_command(self, cli_input:str):
+        """
+        Calls to the relevent functions to perfom the command.
+
+        @param cli_input: The line that contains the command to be perfomed and its arguments.
+        """
         command = cli_input[len(Client.COMMAND_PREFIX):]
         if command.startswith(Client_Command.EXIT):
             self._close_session()
@@ -76,6 +103,10 @@ class Client:
             self.handle_command(cli_input)
         else:
             self.send_message(cli_input)
+
+    def handle_server_response(self):
+        raw_message = self.socket.recv(Chat_Request.MAX_REQUEST_SIZE)
+        decoded_message = Chat_Request.decode(raw_message)
 
     def start(self):
         self.start_new_session()
