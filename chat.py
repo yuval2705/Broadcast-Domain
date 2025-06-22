@@ -1,6 +1,6 @@
 from enum import Enum
 
-class Request_Type(Enum):
+class Request_Type(bytes, Enum):
     NEW_CONNECTION = b'\x00'
     MESSAGE = b'\x01'
     TRANSFER = b'\x02'
@@ -18,10 +18,15 @@ class Chat_Request:
     def encode(self):
         msg = self.type
         for v in self.args:
-            msg += Chat_Packet.SPLIT_MAGIC + str(v).encode()
+            msg += Chat_Request.SPLIT_MAGIC + str(v).encode()
+        return msg
+    
+    def new_connection_request(username:str, room:str):
+        return Chat_Request(Request_Type.NEW_CONNECTION, username, room)
 
-    def decode(raw_packet):
-        message_parts = raw_message.split(SPLIT_MAGIC)
+    def decode(raw_request):
+        message_parts = raw_request.split(Chat_Request.SPLIT_MAGIC)
         packet_type = message_parts[0]
         args = message_parts[1:]
-        return Chat_Packet(packet_type, *args)
+        args = [arg.decode() for arg in args]
+        return Chat_Request(packet_type, *args)

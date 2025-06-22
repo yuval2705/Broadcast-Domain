@@ -1,6 +1,6 @@
 import socket
 from server import DEFAULT_SERVER_ADDR, DEFAULT_SERVER_PORT
-
+from chat import Chat_Request
 
 
 class Client:
@@ -13,11 +13,13 @@ class Client:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((server_ip, server_port))
         
-
     def start(self):
-      self.socket.send("my name is jeff".encode())
-      print(self.socket.recv(1024).decode())
-      
+        new_conn_req = Chat_Request.new_connection_request("jeff", "kita alef")
+        self.socket.send(new_conn_req.encode())
+
+        while True:
+            print(self.socket.recv(1024).decode())
+        self.socket.close()
 
 if __name__ == "__main__":
     c = Client("yuval", "kita alef", DEFAULT_SERVER_ADDR, DEFAULT_SERVER_PORT)
