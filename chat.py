@@ -36,7 +36,6 @@ class Chat_Request:
         message_parts = raw_request.split(Chat_Request.SPLIT_MAGIC)
         packet_type = message_parts[0]
         args = message_parts[1:]
-        args = [arg.decode() for arg in args]
         return Chat_Request(packet_type, *args)
 
 
@@ -46,10 +45,10 @@ class New_Connection_Request(Chat_Request):
 
 
 class Message_Request(Chat_Request):
-    def __init__(self, message:str):
-        super().__init__(Request_Type.MESSAGE, message.encode())
+    def __init__(self, raw_message:bytes):
+        super().__init__(Request_Type.MESSAGE, raw_message)
 
 
 class Close_Request(Chat_Request):
-    def __init__(self):
-        super().__init__(Request_Type.EXIT)
+    def __init__(self, close_message:bytes=b""):
+        super().__init__(Request_Type.EXIT, close_message)

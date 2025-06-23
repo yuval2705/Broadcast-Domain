@@ -2,7 +2,7 @@ import socket
 from typing import List
 import select
 from queue import Queue
-from chat import Request_Type, Chat_Request
+from chat import Request_Type, Chat_Request, Message_Request, Close_Request
 import argparse
 
 DEFAULT_SERVER_ADDR = "0.0.0.0"
@@ -27,15 +27,21 @@ class Room:
         self.messages = messages
         self.subscribers = list()
 
-    def add_subscriber(self, user_session:User_Session):
+    def add_subscriber(self, user_session:User_Session) -> bool:
         """
         Adds a `User_Session` as a subscriber to be invoked when a new message is added.
+        Returns indication if the operation was successful.
 
         @param user_session: The `User_Session` to subscribe.
+        @return: A bool indication if the operation was succesful or not.
         """
+        if user_session.username not in self._members:
+            return False
+
         self.subscribers.append(user_session.new_messages)
         for msg in self.messages:
             user_session.new_messages.put(msg)
+        return True
 
     def invoke_new_message(self, raw_message:bytes) -> None:
         """
@@ -50,7 +56,7 @@ class Room:
             except Exception as e:
                 self.subscribers.remove(q)
 
-    def unsubscribe(self, user_session:User_Session):
+    def unsubscribe(self, user_session:User_Session) -> None:
         """
         Removes the given `User_Session` from the subscribers.
 
@@ -111,7 +117,7 @@ class Server:
         sock, addr = self.main_socket.accept()
         self.open_sockets.update({sock: None})
 
-    def _handle_new_connection(self, client_socket:socket.socket, request:Chat_Request):
+    def _handle_new_connection(self, client_socket:socket.socket, request:Chat_Request) -> None:
         """
         Attaches a `User_Session` according to the new "connection request" with the socket
         for later communication between the client and the server.
@@ -124,15 +130,19 @@ class Server:
         self.close_user_session(self.open_sockets.get(client_socket, None))
 
         # The new `User_Session` object.
-        new_session = User_Session(*request.args)
+        decoded_args = [arg.decode() for arg in request.args]
+        new_session = User_Session(*decoded_args)
         self.open_sockets.update({client_socket: new_session}) 
         requested_room = self.rooms.get(new_session.room_name, None)
         if requested_room:
-            requested_room.add_subscriber(new_session)
-        else:
-            self.close_client_connection(client_socket)
+            if requested_room.add_subscriber(new_session):
+                return
+        
+        close_request = Close_Request("This Room doesnt exits or you dont have permissions to it!".encode())
+        client_socket.send(close_request.encode())
+        self.close_client_connection(client_socket)
 
-    def _handle_new_message(self, client_socket:socket.socket, raw_message:bytes):
+    def _handle_new_message(self, client_socket:socket.socket, raw_message:bytes) -> None:
         """
         Handles and called when the client wants/sent a new message.
 
@@ -141,12 +151,15 @@ class Server:
         """
         user_session = self.open_sockets.get(client_socket, None)
         if user_session is None:
+            close_request = Close_Request("No connection procedure happend! Try again with doing it properly!".encode())
+            client_socket.send(close_request.encode())
+            self.close_client_connection(client_socket)
             return
         requested_room = self.rooms.get(user_session.room_name, None)
         if requested_room:
-            requested_room.invoke_new_message(raw_message.encode())
+            requested_room.invoke_new_message(raw_message)
 
-    def handle_user_request(self, client_socket:socket.socket):
+    def handle_user_request(self, client_socket:socket.socket) -> None:
         """
         Handles and called every time the client sends a request.
         It then calls the relevent function for each request type.
@@ -177,7 +190,7 @@ class Server:
             if requested_room:
                 requested_room.unsubscribe(user_session)
 
-    def close_client_connection(self, client_socket:socket.socket):
+    def close_client_connection(self, client_socket:socket.socket) -> None:
         """
         Closes the connection between this client and the server.
         It is being called everytime we want to `terminate` or stop the communication socket itself.
@@ -189,7 +202,7 @@ class Server:
         user_session = self.open_sockets.pop(client_socket, None)
         self.close_user_session(user_session)
     
-    def push_to_client(self, client_socket:socket.socket):
+    def push_to_client(self, client_socket:socket.socket) -> None:
         """
         Pushes/Sends the pending messages to the client.
         
@@ -201,9 +214,10 @@ class Server:
 
         if not user_session.new_messages.empty():
             msg = user_session.new_messages.get()
-            client_socket.send(msg)
+            msg_request = Message_Request(msg)
+            client_socket.send(msg_request.encode())
 
-    def _handle_exception(self, client_socket:socket.socket, excep:Exception):
+    def _handle_exception(self, client_socket:socket.socket, excep:Exception) -> None:
         """
         Handles exceptions the happend in client_socket.
 
@@ -220,7 +234,7 @@ class Server:
             print(excep)
             self.close_client_connection(client_socket)
 
-    def start_server(self):
+    def start_server(self) -> None:
         """
         Starts the server and does the main loop of the server
         """

@@ -1,6 +1,6 @@
 import socket
 from server import DEFAULT_SERVER_ADDR, DEFAULT_SERVER_PORT
-from chat import Chat_Request, Message_Request, Close_Request, New_Connection_Request
+from chat import Chat_Request, Message_Request, Request_Type, Close_Request, New_Connection_Request
 import select
 import sys
 from enum import Enum
@@ -9,6 +9,10 @@ import argparse
 
 
 class Message:
+    """
+    Used to parse and send messages.
+    The server itself only accepts and saves bytes so the client can parse them as he likes.
+    """
     def __init__(self, username:str, date:datetime.datetime = None, body:str = ""):
         self.username = username
         self.date = date
@@ -22,6 +26,9 @@ class Message:
 
 
 class Client_Command(str, Enum):
+    """
+    Represeting the commands that the client can perfom.
+    """
     EXIT = "exit"
     TRANSFER = "transfer"
 
@@ -44,7 +51,7 @@ class Client:
         self.socket.connect((server_ip, server_port))
         self.in_session = True
 
-    def start_new_session(self, username:str=None, room_name:str=None):
+    def start_new_session(self, username:str=None, room_name:str=None) -> None:
         """
         Sends to the server that a new session is starting and send him the relevent information for the session.
         (like username and room_name).
@@ -69,7 +76,7 @@ class Client:
         close_req = Close_Request()
         self.socket.send(close_req.encode())
 
-    def _change_room(self, new_room:str):
+    def _change_room(self, new_room:str) -> None:
         """
         Creates a new session with the current username but with a new room.
 
@@ -77,7 +84,7 @@ class Client:
         """
         self.start_new_session(room_name=new_room)
 
-    def handle_command(self, cli_input:str):
+    def handle_command(self, cli_input:str) -> None:
         """
         Calls to the relevent functions to perfom the command.
 
@@ -93,30 +100,61 @@ class Client:
             else:
                 self._change_room(command_args[1].strip().lstrip())
 
-    def send_message(self, cli_input:str):
+    def send_message(self, cli_input:str) -> None:
+        """
+        Sends a message to the room.
+
+        @param cli_input: The cli_input to send as a message.
+        """
         new_message = Message(username=self.username, body=cli_input)
-        new_message_request = Message_Request(str(new_message))
+        new_message_request = Message_Request(str(new_message).encode())
         self.socket.send(new_message_request.encode())
 
-    def handle_cli_input(self, cli_input:str):
+    def handle_cli_input(self, cli_input:str) -> None:
+        """
+        Calls the relevent function according to the given cli_input line.
+        For example if its a command it calls to the command handler function.
+
+        @param cli_input: The cli input line to handle.
+        """
         if cli_input.startswith(Client.COMMAND_PREFIX):
             self.handle_command(cli_input)
         else:
             self.send_message(cli_input)
 
-    def handle_server_response(self):
-        raw_message = self.socket.recv(Chat_Request.MAX_REQUEST_SIZE)
-        decoded_message = Chat_Request.decode(raw_message)
+    def handle_server_response(self) -> None:
+        """
+        Handle each response received from the server.
+        Called on every response.
+        """
+        raw_response = self.socket.recv(Chat_Request.MAX_REQUEST_SIZE)
+        decoded_response = Chat_Request.decode(raw_response)
+        if decoded_response.type == Request_Type.MESSAGE:
+            raw_message = decoded_response.args[0]
+            print(raw_message.decode())
+            return
+        if decoded_response.type == Request_Type.EXIT:
+            # The server sent exit meaning he dont want to continue talking to as.
+            # We are going to print the message and leave!
+            print(f"Server send {decoded_response.type}!")
+            raw_message = decoded_response.args[0]
+            print(raw_message.decode())
+            self.in_session = False
+            return
 
-    def start(self):
+    def start(self) -> None:
+        """
+        Starts the Client loop.
+        """
         self.start_new_session()
         while self.in_session:
             readables, _, _ = select.select([self.socket, sys.stdin], [], [])
             for r in readables:
                 if r is self.socket:
-                    message = self.socket.recv(Chat_Request.MAX_REQUEST_SIZE).decode()
-                    if message:
-                        print(message + "\n")
+                    self.handle_server_response()
+                    #message = self.socket.recv(Chat_Request.MAX_REQUEST_SIZE).decode()
+                    #if message:
+                    #   print(message + "\n")
                 else:
                     self.handle_cli_input(r.readline())
 
@@ -124,6 +162,11 @@ class Client:
 
 
 def init_argparser() -> argparse.ArgumentParser:
+    """
+    Inits the argparser for the chat client.
+    
+    @return: The new `ArgumentParser`
+    """
     parser = argparse.ArgumentParser(description="Chat client for linux!")
     parser.add_argument("server_ip", type=str, help="The IPv4 address of the chat server")
     parser.add_argument("server_port", type=int, help="The port number of the chat server")
