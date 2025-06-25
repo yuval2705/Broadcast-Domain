@@ -73,6 +73,7 @@ class Server:
         self.init_main_socket(ip, port)
         self.open_sockets = {self.main_socket: None}
         self.rooms = dict()
+        self._init_request_handler()
         # Tests
         self._add_test()
 
@@ -97,6 +98,16 @@ class Server:
         new_room = Room(room_name, members, messages)
         self.rooms.update({room_name : new_room})
 
+    
+    def _init_request_handler(self) -> None:
+        """
+        Inits the request handler dict which is responsible for handling the different requests.
+        """
+        self.request_handler = dict()
+        self.request_handler[Request_Type.NEW_CONNECTION] = self._handle_new_connection
+        self.request_handler[Request_Type.MESSAGE] = self._handle_new_message
+        self.request_handler[Request_Type.EXIT] = self.close_client_connection
+
     def init_main_socket(self, ip:str, port:str) -> None:
         """
         Inits the main socket of the server.
@@ -117,20 +128,20 @@ class Server:
         sock, addr = self.main_socket.accept()
         self.open_sockets.update({sock: None})
 
-    def _handle_new_connection(self, client_socket:socket.socket, request:Chat_Request) -> None:
+    def _handle_new_connection(self, client_socket:socket.socket, *request_args) -> None:
         """
         Attaches a `User_Session` according to the new "connection request" with the socket
         for later communication between the client and the server.
 
         @param client_socket: The socket which the new connection is comming from.
-        @param request: The new connection request that had been sent.
+        @param request_args: The arguments of the request that had been sent.
         """ 
         
         # If the user wants to change his room it pops the previous `User_Session` for the new one.
         self.close_user_session(self.open_sockets.get(client_socket, None))
 
         # The new `User_Session` object.
-        decoded_args = [arg.decode() for arg in request.args]
+        decoded_args = [arg.decode() for arg in request_args]
         new_session = User_Session(*decoded_args)
         self.open_sockets.update({client_socket: new_session}) 
         requested_room = self.rooms.get(new_session.room_name, None)
@@ -142,7 +153,7 @@ class Server:
         client_socket.send(close_request.encode())
         self.close_client_connection(client_socket)
 
-    def _handle_new_message(self, client_socket:socket.socket, raw_message:bytes) -> None:
+    def _handle_new_message(self, client_socket:socket.socket, raw_message:bytes, *args) -> None:
         """
         Handles and called when the client wants/sent a new message.
 
@@ -171,12 +182,13 @@ class Server:
             return
         decoded_request = Chat_Request.decode(request)
         req_type = decoded_request.type
-        if req_type == Request_Type.NEW_CONNECTION:
-            self._handle_new_connection(client_socket, decoded_request)
-        if req_type == Request_Type.MESSAGE:
-            self._handle_new_message(client_socket, decoded_request.args[0])
-        if req_type == Request_Type.EXIT:
-            self.close_client_connection(client_socket)
+
+        handler = self.request_handler.get(req_type, None)
+        if handler is None:
+            return
+
+        handler(client_socket, *decoded_request.args)
+        return
     
     def close_user_session(self, user_session:User_Session) -> None:
         """
@@ -190,7 +202,7 @@ class Server:
             if requested_room:
                 requested_room.unsubscribe(user_session)
 
-    def close_client_connection(self, client_socket:socket.socket) -> None:
+    def close_client_connection(self, client_socket:socket.socket, *args) -> None:
         """
         Closes the connection between this client and the server.
         It is being called everytime we want to `terminate` or stop the communication socket itself.
