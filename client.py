@@ -60,20 +60,12 @@ class Client:
         self.socket.connect((server_ip, server_port))
         self.in_session = True
 
-    def start_new_session(self, username:str=None, room_name:str=None) -> None:
+    def start_new_session(self) -> None:
         """
         Sends to the server that a new session is starting and send him the relevent information for the session.
         (like username and room_name).
-
-        @param username: The username for the new session.
-        @param room_name: The room to connect to in this new session.
         """
-        if username is None:
-            username = self.username
-        if room_name is None:
-            room_name = self.room_name
-
-        new_conn_req = New_Connection_Request(username, room_name)
+        new_conn_req = New_Connection_Request(self.username, self.room_name)
         self.socket.send(new_conn_req.encode())
     
     def _close_session(self, *args) -> None:
@@ -92,7 +84,7 @@ class Client:
         @param new_room: The room name to create the new session to.
         """
         self.room_name = new_room
-        self.start_new_session(room_name=new_room)
+        self.start_new_session()
 
     def handle_command(self, cli_input:str) -> None:
         """
